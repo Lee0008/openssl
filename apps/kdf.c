@@ -52,13 +52,14 @@ static char *alloc_kdf_algorithm_name(STACK_OF(OPENSSL_STRING) **optp,
                                       const char *name, const char *arg)
 {
     size_t len = strlen(name) + strlen(arg) + 2;
-    char *res = app_malloc(len, "algorithm name");
+    char *res;
 
     if (*optp == NULL)
         *optp = sk_OPENSSL_STRING_new_null();
     if (*optp == NULL)
         return NULL;
 
+    res = app_malloc(len, "algorithm name");
     BIO_snprintf(res, len, "%s:%s", name, arg);
     if (sk_OPENSSL_STRING_push(*optp, res))
         return res;
@@ -137,7 +138,8 @@ opthelp:
     if (argc != 1)
         goto opthelp;
 
-    if ((kdf = EVP_KDF_fetch(NULL, argv[0], NULL)) == NULL) {
+    if ((kdf = EVP_KDF_fetch(app_get0_libctx(), argv[0],
+                             app_get0_propq())) == NULL) {
         BIO_printf(bio_err, "Invalid KDF name %s\n", argv[0]);
         goto opthelp;
     }

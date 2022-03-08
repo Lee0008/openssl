@@ -10,6 +10,7 @@ openssl-ca - sample minimal CA application
 B<openssl> B<ca>
 [B<-help>]
 [B<-verbose>]
+[B<-quiet>]
 [B<-config> I<filename>]
 [B<-name> I<section>]
 [B<-section> I<section>]
@@ -44,6 +45,7 @@ B<openssl> B<ca>
 [B<-inform> B<DER>|<PEM>]
 [B<-out> I<file>]
 [B<-notext>]
+[B<-dateopt>]
 [B<-outdir> I<dir>]
 [B<-infiles>]
 [B<-spkac> I<file>]
@@ -64,8 +66,6 @@ B<openssl> B<ca>
 {- $OpenSSL::safe::opt_r_synopsis -}
 {- $OpenSSL::safe::opt_engine_synopsis -}{- $OpenSSL::safe::opt_provider_synopsis -}
 [I<certreq>...]
-
-=for openssl ifdef engine
 
 =head1 DESCRIPTION
 
@@ -95,6 +95,11 @@ Print out a usage message.
 =item B<-verbose>
 
 This prints extra details about the operations being performed.
+
+=item B<-quiet>
+
+This prints fewer details about the operations being performed, which may
+be handy during batch scripts or pipelines.
 
 =item B<-config> I<filename>
 
@@ -210,6 +215,11 @@ self-signed certificate.
 =item B<-notext>
 
 Don't output the text form of a certificate to the output file.
+
+=item B<-dateopt>
+
+Specify the date output format. Values are: rfc_822 and iso_8601.
+Defaults to rfc_822.
 
 =item B<-startdate> I<date>
 

@@ -10,7 +10,7 @@
 #include <string.h>
 #include <openssl/ec.h>
 #include "crypto/ec.h"
-#include "e_os.h" /* strcasecmp required by windows */
+#include "internal/e_os.h" /* strcasecmp required by windows */
 
 typedef struct ec_name2nid_st {
     const char *name;
@@ -115,7 +115,7 @@ static const EC_NAME2NID curve_list[] = {
     {"SM2", NID_sm2 },
 };
 
-const char *ossl_ec_curve_nid2name(int nid)
+const char *OSSL_EC_curve_nid2name(int nid)
 {
     size_t i;
 

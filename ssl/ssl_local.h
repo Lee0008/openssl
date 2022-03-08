@@ -12,11 +12,11 @@
 #ifndef OSSL_SSL_LOCAL_H
 # define OSSL_SSL_LOCAL_H
 
-# include "e_os.h"              /* struct timeval for DTLS */
+# include "internal/e_os.h"              /* struct timeval for DTLS */
 # include <stdlib.h>
 # include <time.h>
-# include <string.h>
 # include <errno.h>
+# include "internal/common.h" /* for HAS_PREFIX */
 
 # include <openssl/buffer.h>
 # include <openssl/comp.h>
@@ -593,12 +593,15 @@ struct ssl_session_st {
      */
     long verify_result;         /* only for servers */
     CRYPTO_REF_COUNT references;
-    long timeout;
-    long time;
+    time_t timeout;
+    time_t time;
+    time_t calc_timeout;
+    int timeout_ovf;
     unsigned int compress_meth; /* Need to lookup the method */
     const SSL_CIPHER *cipher;
     unsigned long cipher_id;    /* when ASN.1 loaded, this needs to be used to
                                  * load the 'cipher' structure */
+    unsigned int kex_group;      /* TLS group from key exchange */
     CRYPTO_EX_DATA ex_data;     /* application specific data */
     /*
      * These are used to make removal of session-ids more efficient and to
@@ -633,6 +636,7 @@ struct ssl_session_st {
     unsigned char *ticket_appdata;
     size_t ticket_appdata_len;
     uint32_t flags;
+    SSL_CTX *owner;
     CRYPTO_RWLOCK *lock;
 };
 
@@ -807,6 +811,9 @@ int ssl_hmac_final(SSL_HMAC *ctx, unsigned char *md, size_t *len,
 size_t ssl_hmac_size(const SSL_HMAC *ctx);
 
 int ssl_get_EC_curve_nid(const EVP_PKEY *pkey);
+__owur int tls13_set_encoded_pub_key(EVP_PKEY *pkey,
+                                     const unsigned char *enckey,
+                                     size_t enckeylen);
 
 typedef struct tls_group_info_st {
     char *tlsname;           /* Curve Name as in TLS specs */
@@ -894,6 +901,9 @@ struct ssl_ctx_st {
                                                 * other processes - spooky
                                                 * :-) */
     } stats;
+#ifdef TSAN_REQUIRES_LOCKING
+    CRYPTO_RWLOCK *tsan_lock;
+#endif
 
     CRYPTO_REF_COUNT references;
 
@@ -957,7 +967,7 @@ struct ssl_ctx_st {
      * SSL_new)
      */
 
-    uint32_t options;
+    uint64_t options;
     uint32_t mode;
     int min_proto_version;
     int max_proto_version;
@@ -1378,7 +1388,7 @@ struct ssl_st {
         size_t previous_client_finished_len;
         unsigned char previous_server_finished[EVP_MAX_MD_SIZE];
         size_t previous_server_finished_len;
-        int send_connection_binding; /* TODOEKR */
+        int send_connection_binding;
 
 # ifndef OPENSSL_NO_NEXTPROTONEG
         /*
@@ -1412,6 +1422,12 @@ struct ssl_st {
          */
         char is_probably_safari;
 
+        /*
+         * Track whether we did a key exchange this handshake or not, so
+         * SSL_get_negotiated_group() knows whether to fall back to the
+         * value in the SSL_SESSION.
+         */
+        char did_kex;
         /* For clients: peer temporary key */
         /* The group_id for the key exchange key */
         uint16_t group_id;
@@ -1535,7 +1551,7 @@ struct ssl_st {
     STACK_OF(X509_NAME) *client_ca_names;
     CRYPTO_REF_COUNT references;
     /* protocol behaviour */
-    uint32_t options;
+    uint64_t options;
     /* API behaviour */
     uint32_t mode;
     int min_proto_version;
@@ -1852,15 +1868,6 @@ struct hm_header_st {
     struct dtls1_retransmit_state saved_retransmit_state;
 };
 
-struct dtls1_timeout_st {
-    /* Number of read timeouts so far */
-    unsigned int read_timeouts;
-    /* Number of write timeouts so far */
-    unsigned int write_timeouts;
-    /* Number of alerts received so far */
-    unsigned int num_alerts;
-};
-
 typedef struct hm_fragment_st {
     struct hm_header_st msg_header;
     unsigned char *fragment;
@@ -1906,7 +1913,8 @@ typedef struct dtls1_state_st {
     size_t mtu;           /* max DTLS packet size */
     struct hm_header_st w_msg_hdr;
     struct hm_header_st r_msg_hdr;
-    struct dtls1_timeout_st timeout;
+    /* Number of alerts received so far */
+    unsigned int timeout_num_alerts;
     /*
      * Indicates when the last handshake msg sent will timeout
      */
@@ -2167,6 +2175,9 @@ typedef enum downgrade_en {
 
 #define TLSEXT_SIGALG_ed25519                                   0x0807
 #define TLSEXT_SIGALG_ed448                                     0x0808
+#define TLSEXT_SIGALG_ecdsa_brainpoolP256r1_sha256              0x081a
+#define TLSEXT_SIGALG_ecdsa_brainpoolP384r1_sha384              0x081b
+#define TLSEXT_SIGALG_ecdsa_brainpoolP512r1_sha512              0x081c
 
 /* Known PSK key exchange modes */
 #define TLSEXT_KEX_MODE_KE                                      0x00
@@ -2426,6 +2437,7 @@ __owur int ssl_cert_set_cert_store(CERT *c, X509_STORE *store, int chain,
 __owur int ssl_security(const SSL *s, int op, int bits, int nid, void *other);
 __owur int ssl_ctx_security(const SSL_CTX *ctx, int op, int bits, int nid,
                             void *other);
+int ssl_get_security_level_bits(const SSL *s, const SSL_CTX *ctx, int *levelp);
 
 __owur int ssl_cert_lookup_by_nid(int nid, size_t *pidx);
 __owur const SSL_CERT_LOOKUP *ssl_cert_lookup_by_pkey(const EVP_PKEY *pk,
@@ -2560,7 +2572,6 @@ __owur int dtls1_handle_timeout(SSL *s);
 void dtls1_start_timer(SSL *s);
 void dtls1_stop_timer(SSL *s);
 __owur int dtls1_is_timer_expired(SSL *s);
-void dtls1_double_timeout(SSL *s);
 __owur int dtls_raw_hello_verify_request(WPACKET *pkt, unsigned char *cookie,
                                          size_t cookie_len);
 __owur size_t dtls1_min_mtu(SSL *s);
@@ -2640,6 +2651,8 @@ __owur int ssl_check_srvr_ecc_cert_and_alg(X509 *x, SSL *s);
 
 SSL_COMP *ssl3_comp_find(STACK_OF(SSL_COMP) *sk, int n);
 
+__owur uint16_t ssl_group_id_internal_to_tls13(uint16_t curve_id);
+__owur uint16_t ssl_group_id_tls13_to_internal(uint16_t curve_id);
 __owur const TLS_GROUP_INFO *tls1_group_id_lookup(SSL_CTX *ctx, uint16_t curve_id);
 __owur int tls1_group_id2nid(uint16_t group_id, int include_unknown);
 __owur uint16_t tls1_nid2group_id(int nid);
@@ -2763,7 +2776,7 @@ __owur char ssl3_cbc_record_digest_supported(const EVP_MD_CTX *ctx);
 __owur int ssl3_cbc_digest_record(const EVP_MD *md,
                                   unsigned char *md_out,
                                   size_t *md_out_size,
-                                  const unsigned char header[13],
+                                  const unsigned char *header,
                                   const unsigned char *data,
                                   size_t data_size,
                                   size_t data_plus_mac_plus_padding_size,
@@ -2837,10 +2850,39 @@ int ssl_srp_ctx_init_intern(SSL *s);
 int ssl_srp_calc_a_param_intern(SSL *s);
 int ssl_srp_server_param_with_username_intern(SSL *s, int *ad);
 
+void ssl_session_calculate_timeout(SSL_SESSION* ss);
+
 # else /* OPENSSL_UNIT_TEST */
 
 #  define ssl_init_wbio_buffer SSL_test_functions()->p_ssl_init_wbio_buffer
 #  define ssl3_setup_buffers SSL_test_functions()->p_ssl3_setup_buffers
 
 # endif
+
+/* Some helper routines to support TSAN operations safely */
+static ossl_unused ossl_inline int ssl_tsan_lock(const SSL_CTX *ctx)
+{
+#ifdef TSAN_REQUIRES_LOCKING
+    if (!CRYPTO_THREAD_write_lock(ctx->tsan_lock))
+        return 0;
+#endif
+    return 1;
+}
+
+static ossl_unused ossl_inline void ssl_tsan_unlock(const SSL_CTX *ctx)
+{
+#ifdef TSAN_REQUIRES_LOCKING
+    CRYPTO_THREAD_unlock(ctx->tsan_lock);
+#endif
+}
+
+static ossl_unused ossl_inline void ssl_tsan_counter(const SSL_CTX *ctx,
+                                                     TSAN_QUALIFIER int *stat)
+{
+    if (ssl_tsan_lock(ctx)) {
+        tsan_counter(stat);
+        ssl_tsan_unlock(ctx);
+    }
+}
+
 #endif

@@ -62,7 +62,7 @@ const char * hamlet_2 =
     "And lose the name of Action. Soft you now,\n"
     "The fair Ophelia? Nymph in thy Orisons\n"
     "Be all my sins remember'd.\n"
-; 
+;
 
 /* The known value of the SHA3-512 digest of the above soliloqy */
 const unsigned char known_answer[] = {
@@ -105,9 +105,9 @@ int demonstrate_digest(void)
         goto cleanup;
     }
     /* Determine the length of the fetched digest type */
-    digest_length = EVP_MD_size(message_digest);
+    digest_length = EVP_MD_get_size(message_digest);
     if (digest_length <= 0) {
-        fprintf(stderr, "EVP_MD_size returned invalid size.\n");
+        fprintf(stderr, "EVP_MD_get_size returned invalid size.\n");
         goto cleanup;
     }
 

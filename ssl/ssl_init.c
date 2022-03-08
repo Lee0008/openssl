@@ -1,5 +1,5 @@
 /*
- * Copyright 2016-2020 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 2016-2021 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the Apache License 2.0 (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -7,7 +7,7 @@
  * https://www.openssl.org/source/license.html
  */
 
-#include "e_os.h"
+#include "internal/e_os.h"
 
 #include "internal/err.h"
 #include <openssl/crypto.h>
@@ -35,7 +35,7 @@ DEFINE_RUN_ONCE_STATIC(ossl_init_ssl_base)
     SSL_COMP_get_compression_methods();
 #endif
     ssl_sort_cipher_list();
-    OSSL_TRACE(INIT,"ossl_init_ssl_base: SSL_add_ssl_module()\n");
+    OSSL_TRACE(INIT, "ossl_init_ssl_base: SSL_add_ssl_module()\n");
     /*
      * We ignore an error return here. Not much we can do - but not that bad
      * either. We can still safely continue.
@@ -54,8 +54,8 @@ DEFINE_RUN_ONCE_STATIC(ossl_init_load_ssl_strings)
      * pulling in all the error strings during static linking
      */
 #if !defined(OPENSSL_NO_ERR) && !defined(OPENSSL_NO_AUTOERRINIT)
-    OSSL_TRACE(INIT, "ossl_init_load_ssl_strings: err_load_SSL_strings_int()\n");
-    err_load_SSL_strings_int();
+    OSSL_TRACE(INIT, "ossl_init_load_ssl_strings: ossl_err_load_SSL_strings()\n");
+    ossl_err_load_SSL_strings();
     ssl_strings_inited = 1;
 #endif
     return 1;

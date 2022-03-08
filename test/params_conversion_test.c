@@ -1,5 +1,5 @@
 /*
- * Copyright 2019-2020 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 2019-2021 The OpenSSL Project Authors. All Rights Reserved.
  * Copyright (c) 2019, Oracle and/or its affiliates.  All rights reserved.
  *
  * Licensed under the Apache License 2.0 (the "License").  You may not use
@@ -17,6 +17,11 @@
 
 # ifdef OPENSSL_SYS_WINDOWS
 #  define strcasecmp _stricmp
+# endif
+
+# ifdef OPENSSL_SYS_VMS
+#  define strtoumax strtoull
+#  define strtoimax strtoll
 # endif
 
 typedef struct {
@@ -189,7 +194,8 @@ static int param_conversion_test(const PARAM_CONVERSION *pc, int line)
     double d;
 
     if (!pc->valid_i32) {
-        if (!TEST_false(OSSL_PARAM_get_int32(pc->param, &i32))) {
+        if (!TEST_false(OSSL_PARAM_get_int32(pc->param, &i32))
+                || !TEST_ulong_ne(ERR_get_error(), 0)) {
             TEST_note("unexpected valid conversion to int32 on line %d", line);
             return 0;
         }
@@ -209,7 +215,8 @@ static int param_conversion_test(const PARAM_CONVERSION *pc, int line)
     }
 
     if (!pc->valid_i64) {
-        if (!TEST_false(OSSL_PARAM_get_int64(pc->param, &i64))) {
+        if (!TEST_false(OSSL_PARAM_get_int64(pc->param, &i64))
+                || !TEST_ulong_ne(ERR_get_error(), 0)) {
             TEST_note("unexpected valid conversion to int64 on line %d", line);
             return 0;
         }
@@ -229,7 +236,8 @@ static int param_conversion_test(const PARAM_CONVERSION *pc, int line)
     }
 
     if (!pc->valid_u32) {
-        if (!TEST_false(OSSL_PARAM_get_uint32(pc->param, &u32))) {
+        if (!TEST_false(OSSL_PARAM_get_uint32(pc->param, &u32))
+                || !TEST_ulong_ne(ERR_get_error(), 0)) {
             TEST_note("unexpected valid conversion to uint32 on line %d", line);
             return 0;
         }
@@ -249,7 +257,8 @@ static int param_conversion_test(const PARAM_CONVERSION *pc, int line)
     }
 
     if (!pc->valid_u64) {
-        if (!TEST_false(OSSL_PARAM_get_uint64(pc->param, &u64))) {
+        if (!TEST_false(OSSL_PARAM_get_uint64(pc->param, &u64))
+                || !TEST_ulong_ne(ERR_get_error(), 0)) {
             TEST_note("unexpected valid conversion to uint64 on line %d", line);
             return 0;
         }
@@ -269,13 +278,34 @@ static int param_conversion_test(const PARAM_CONVERSION *pc, int line)
     }
 
     if (!pc->valid_d) {
-        if (!TEST_false(OSSL_PARAM_get_double(pc->param, &d))) {
+        if (!TEST_false(OSSL_PARAM_get_double(pc->param, &d))
+                || !TEST_ulong_ne(ERR_get_error(), 0)) {
             TEST_note("unexpected valid conversion to double on line %d", line);
             return 0;
         }
     } else {
-        if (!TEST_true(OSSL_PARAM_get_double(pc->param, &d))
-            || !TEST_true(d == pc->d)) {
+        if (!TEST_true(OSSL_PARAM_get_double(pc->param, &d))) {
+            TEST_note("unable to convert to double on line %d", line);
+            return 0;
+        }
+        /*
+         * Check for not a number (NaN) without using the libm functions.
+         * When d is a NaN, the standard requires d == d to be false.
+         * It's less clear if d != d should be true even though it generally is.
+         * Hence we use the equality test and a not.
+         */
+        if (!(d == d)) {
+            /*
+             * We've encountered a NaN so check it's really meant to be a NaN.
+             * We ignore the case where the two values are both different NaN,
+             * that's not resolvable without knowing the underlying format
+             * or using libm functions.
+             */
+            if (!TEST_false(pc->d == pc->d)) {
+                TEST_note("unexpected NaN on line %d", line);
+                return 0;
+            }
+        } else if (!TEST_true(d == pc->d)) {
             TEST_note("unexpected conversion to double on line %d", line);
             return 0;
         }

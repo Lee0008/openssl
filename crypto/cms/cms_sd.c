@@ -227,19 +227,50 @@ int ossl_cms_SignerIdentifier_cert_cmp(CMS_SignerIdentifier *sid, X509 *cert)
         return -1;
 }
 
+/* Method to map any, incl. provider-implemented PKEY types to OIDs */
+/* ECDSA and DSA and all provider-delivered signatures implementation is the same */
+static int cms_generic_sign(CMS_SignerInfo *si, int verify)
+{
+    if (!ossl_assert(verify == 0 || verify == 1))
+        return -1;
+
+    if (!verify) {
+        int snid, hnid, pknid;
+        X509_ALGOR *alg1, *alg2;
+        EVP_PKEY *pkey = si->pkey;
+        pknid = EVP_PKEY_get_id(pkey);
+
+        CMS_SignerInfo_get0_algs(si, NULL, NULL, &alg1, &alg2);
+        if (alg1 == NULL || alg1->algorithm == NULL)
+            return -1;
+        hnid = OBJ_obj2nid(alg1->algorithm);
+        if (hnid == NID_undef)
+            return -1;
+        if (pknid <= 0) { /* check whether a provider registered a NID */
+            const char *typename = EVP_PKEY_get0_type_name(pkey);
+            if (typename != NULL)
+                pknid = OBJ_txt2nid(typename);
+        }
+        if (!OBJ_find_sigid_by_algs(&snid, hnid, pknid))
+            return -1;
+        return X509_ALGOR_set0(alg2, OBJ_nid2obj(snid), V_ASN1_UNDEF, NULL);
+    }
+    return 1;
+}
+
 static int cms_sd_asn1_ctrl(CMS_SignerInfo *si, int cmd)
 {
     EVP_PKEY *pkey = si->pkey;
     int i;
 
     if (EVP_PKEY_is_a(pkey, "DSA") || EVP_PKEY_is_a(pkey, "EC"))
-        return ossl_cms_ecdsa_dsa_sign(si, cmd);
+        return cms_generic_sign(si, cmd);
     else if (EVP_PKEY_is_a(pkey, "RSA") || EVP_PKEY_is_a(pkey, "RSA-PSS"))
         return ossl_cms_rsa_sign(si, cmd);
 
-    /* Something else? We'll give engines etc a chance to handle this */
+    /* Now give engines, providers, etc a chance to handle this */
     if (pkey->ameth == NULL || pkey->ameth->pkey_ctrl == NULL)
-        return 1;
+        return cms_generic_sign(si, cmd);
     i = pkey->ameth->pkey_ctrl(pkey, ASN1_PKEY_CTRL_CMS_SIGN, cmd, si);
     if (i == -2) {
         ERR_raise(ERR_LIB_CMS, CMS_R_NOT_SUPPORTED_FOR_THIS_KEY_TYPE);
@@ -354,6 +385,7 @@ CMS_SignerInfo *CMS_add1_signer(CMS_ContentInfo *cms,
 
     if (md == NULL) {
         int def_nid;
+
         if (EVP_PKEY_get_default_digest_nid(pk, &def_nid) <= 0)
             goto err;
         md = EVP_get_digestbynid(def_nid);
@@ -361,11 +393,6 @@ CMS_SignerInfo *CMS_add1_signer(CMS_ContentInfo *cms,
             ERR_raise(ERR_LIB_CMS, CMS_R_NO_DEFAULT_DIGEST);
             goto err;
         }
-    }
-
-    if (!md) {
-        ERR_raise(ERR_LIB_CMS, CMS_R_NO_DIGEST_SET);
-        goto err;
     }
 
     if (md == NULL) {
@@ -388,8 +415,7 @@ CMS_SignerInfo *CMS_add1_signer(CMS_ContentInfo *cms,
     }
 
     if (i == sk_X509_ALGOR_num(sd->digestAlgorithms)) {
-        alg = X509_ALGOR_new();
-        if (alg == NULL)
+        if ((alg = X509_ALGOR_new()) == NULL)
             goto merr;
         X509_ALGOR_set_md(alg, md);
         if (!sk_X509_ALGOR_push(sd->digestAlgorithms, alg)) {
@@ -469,7 +495,8 @@ CMS_SignerInfo *CMS_add1_signer(CMS_ContentInfo *cms,
                 goto err;
             if (EVP_PKEY_CTX_set_signature_md(si->pctx, md) <= 0)
                 goto err;
-        } else if (EVP_DigestSignInit_ex(si->mctx, &si->pctx, EVP_MD_name(md),
+        } else if (EVP_DigestSignInit_ex(si->mctx, &si->pctx,
+                                         EVP_MD_get0_name(md),
                                          ossl_cms_ctx_get0_libctx(ctx),
                                          ossl_cms_ctx_get0_propq(ctx),
                                          pk, NULL) <= 0) {
@@ -496,8 +523,12 @@ void ossl_cms_SignerInfos_set_cmsctx(CMS_ContentInfo *cms)
 {
     int i;
     CMS_SignerInfo *si;
-    STACK_OF(CMS_SignerInfo) *sinfos = CMS_get0_SignerInfos(cms);
+    STACK_OF(CMS_SignerInfo) *sinfos;
     const CMS_CTX *ctx = ossl_cms_get0_cmsctx(cms);
+
+    ERR_set_mark();
+    sinfos = CMS_get0_SignerInfos(cms);
+    ERR_pop_to_mark(); /* removes error in case sinfos == NULL */
 
     for (i = 0; i < sk_CMS_SignerInfo_num(sinfos); i++) {
         si = sk_CMS_SignerInfo_value(sinfos, i);
@@ -714,7 +745,7 @@ static int cms_SignerInfo_content_sign(CMS_ContentInfo *cms,
         pctx = si->pctx;
         if (!EVP_DigestFinal_ex(mctx, md, &mdlen))
             goto err;
-        siglen = EVP_PKEY_size(si->pkey);
+        siglen = EVP_PKEY_get_size(si->pkey);
         sig = OPENSSL_malloc(siglen);
         if (sig == NULL) {
             ERR_raise(ERR_LIB_CMS, ERR_R_MALLOC_FAILURE);
@@ -729,7 +760,7 @@ static int cms_SignerInfo_content_sign(CMS_ContentInfo *cms,
         unsigned char *sig;
         unsigned int siglen;
 
-        sig = OPENSSL_malloc(EVP_PKEY_size(si->pkey));
+        sig = OPENSSL_malloc(EVP_PKEY_get_size(si->pkey));
         if (sig == NULL) {
             ERR_raise(ERR_LIB_CMS, ERR_R_MALLOC_FAILURE);
             goto err;
@@ -779,8 +810,8 @@ int CMS_SignerInfo_sign(CMS_SignerInfo *si)
     const CMS_CTX *ctx = si->cms_ctx;
     char md_name[OSSL_MAX_NAME_SIZE];
 
-    if (!OBJ_obj2txt(md_name, sizeof(md_name),
-                     si->digestAlgorithm->algorithm, 0))
+    if (OBJ_obj2txt(md_name, sizeof(md_name),
+                     si->digestAlgorithm->algorithm, 0) <= 0)
         return 0;
 
     if (CMS_signed_get_attr_by_NID(si, NID_pkcs9_signingTime, -1) < 0) {
@@ -871,7 +902,7 @@ int CMS_SignerInfo_verify(CMS_SignerInfo *si)
         goto err;
     }
     mctx = si->mctx;
-    if (EVP_DigestVerifyInit_ex(mctx, &si->pctx, EVP_MD_name(md), libctx,
+    if (EVP_DigestVerifyInit_ex(mctx, &si->pctx, EVP_MD_get0_name(md), libctx,
                                 propq, si->pkey, NULL) <= 0)
         goto err;
 
@@ -1034,14 +1065,13 @@ int CMS_add_simple_smimecap(STACK_OF(X509_ALGOR) **algs,
             return 0;
         }
     }
-    alg = X509_ALGOR_new();
+    alg = ossl_X509_ALGOR_from_nid(algnid, key != NULL ? V_ASN1_INTEGER :
+                                   V_ASN1_UNDEF, key);
     if (alg == NULL) {
         ASN1_INTEGER_free(key);
         return 0;
     }
 
-    X509_ALGOR_set0(alg, OBJ_nid2obj(algnid),
-                    key ? V_ASN1_INTEGER : V_ASN1_UNDEF, key);
     if (*algs == NULL)
         *algs = sk_X509_ALGOR_new_null();
     if (*algs == NULL || !sk_X509_ALGOR_push(*algs, alg)) {

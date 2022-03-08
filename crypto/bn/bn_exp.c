@@ -29,8 +29,7 @@
 
 #undef SPARC_T4_MONT
 #if defined(OPENSSL_BN_ASM_MONT) && (defined(__sparc__) || defined(__sparc))
-# include "sparc_arch.h"
-extern unsigned int OPENSSL_sparcv9cap_P[];
+# include "crypto/sparc_arch.h"
 # define SPARC_T4_MONT
 #endif
 
@@ -819,7 +818,7 @@ int BN_mod_exp_mont_consttime(BIGNUM *rr, const BIGNUM *a, const BIGNUM *p,
 
         /*
          * BN_to_montgomery can contaminate words above .top [in
-         * BN_DEBUG[_DEBUG] build]...
+         * BN_DEBUG build...
          */
         for (i = am.top; i < top; i++)
             am.d[i] = 0;
@@ -924,7 +923,7 @@ int BN_mod_exp_mont_consttime(BIGNUM *rr, const BIGNUM *a, const BIGNUM *p,
 
         /*
          * BN_to_montgomery can contaminate words above .top [in
-         * BN_DEBUG[_DEBUG] build]...
+         * BN_DEBUG build...
          */
         for (i = am.top; i < top; i++)
             am.d[i] = 0;
@@ -1410,13 +1409,21 @@ int BN_mod_exp_mont_consttime_x2(BIGNUM *rr1, const BIGNUM *a1, const BIGNUM *p1
     BN_MONT_CTX *mont1 = NULL;
     BN_MONT_CTX *mont2 = NULL;
 
-    if (rsaz_avx512ifma_eligible() &&
-        ((a1->top == 16) && (p1->top == 16) && (BN_num_bits(m1) == 1024) &&
-         (a2->top == 16) && (p2->top == 16) && (BN_num_bits(m2) == 1024))) {
+    if (ossl_rsaz_avx512ifma_eligible() &&
+        (((a1->top == 16) && (p1->top == 16) && (BN_num_bits(m1) == 1024) &&
+          (a2->top == 16) && (p2->top == 16) && (BN_num_bits(m2) == 1024)) ||
+         ((a1->top == 24) && (p1->top == 24) && (BN_num_bits(m1) == 1536) &&
+          (a2->top == 24) && (p2->top == 24) && (BN_num_bits(m2) == 1536)) ||
+         ((a1->top == 32) && (p1->top == 32) && (BN_num_bits(m1) == 2048) &&
+          (a2->top == 32) && (p2->top == 32) && (BN_num_bits(m2) == 2048)))) {
 
-        if (bn_wexpand(rr1, 16) == NULL)
+        int topn = a1->top;
+        /* Modulus bits of |m1| and |m2| are equal */
+        int mod_bits = BN_num_bits(m1);
+
+        if (bn_wexpand(rr1, topn) == NULL)
             goto err;
-        if (bn_wexpand(rr2, 16) == NULL)
+        if (bn_wexpand(rr2, topn) == NULL)
             goto err;
 
         /*  Ensure that montgomery contexts are initialized */
@@ -1437,18 +1444,18 @@ int BN_mod_exp_mont_consttime_x2(BIGNUM *rr1, const BIGNUM *a1, const BIGNUM *p1
                 goto err;
         }
 
-        ret = RSAZ_mod_exp_avx512_x2(rr1->d, a1->d, p1->d, m1->d, mont1->RR.d,
-                                     mont1->n0[0],
-                                     rr2->d, a2->d, p2->d, m2->d, mont2->RR.d,
-                                     mont2->n0[0],
-                                     1024 /* factor bit size */);
+        ret = ossl_rsaz_mod_exp_avx512_x2(rr1->d, a1->d, p1->d, m1->d,
+                                          mont1->RR.d, mont1->n0[0],
+                                          rr2->d, a2->d, p2->d, m2->d,
+                                          mont2->RR.d, mont2->n0[0],
+                                          mod_bits);
 
-        rr1->top = 16;
+        rr1->top = topn;
         rr1->neg = 0;
         bn_correct_top(rr1);
         bn_check_top(rr1);
 
-        rr2->top = 16;
+        rr2->top = topn;
         rr2->neg = 0;
         bn_correct_top(rr2);
         bn_check_top(rr2);

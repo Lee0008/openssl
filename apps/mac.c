@@ -56,13 +56,14 @@ static char *alloc_mac_algorithm_name(STACK_OF(OPENSSL_STRING) **optp,
                                       const char *name, const char *arg)
 {
     size_t len = strlen(name) + strlen(arg) + 2;
-    char *res = app_malloc(len, "algorithm name");
+    char *res;
 
     if (*optp == NULL)
         *optp = sk_OPENSSL_STRING_new_null();
     if (*optp == NULL)
         return NULL;
 
+    res = app_malloc(len, "algorithm name");
     BIO_snprintf(res, len, "%s:%s", name, arg);
     if (sk_OPENSSL_STRING_push(*optp, res))
         return res;
@@ -136,10 +137,9 @@ opthelp:
     }
 
     /* One argument, the MAC name. */
-    argc = opt_num_rest();
-    argv = opt_rest();
-    if (argc != 1)
+    if (!opt_check_rest_arg("MAC name"))
         goto opthelp;
+    argv = opt_rest();
 
     mac = EVP_MAC_fetch(app_get0_libctx(), argv[0], app_get0_propq());
     if (mac == NULL) {
@@ -220,7 +220,7 @@ opthelp:
         for (i = 0; i < (int)len; ++i)
             BIO_printf(out, "%02X", buf[i]);
         if (outfile == NULL)
-            BIO_printf(out,"\n");
+            BIO_printf(out, "\n");
     }
 
     ret = 0;

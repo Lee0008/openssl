@@ -311,7 +311,7 @@ static int dh_security_bits(const EVP_PKEY *pkey)
 
 static int dh_cmp_parameters(const EVP_PKEY *a, const EVP_PKEY *b)
 {
-    return ossl_ffc_params_cmp(&a->pkey.dh->params, &a->pkey.dh->params,
+    return ossl_ffc_params_cmp(&a->pkey.dh->params, &b->pkey.dh->params,
                                a->ameth != &ossl_dhx_asn1_meth);
 }
 
@@ -440,8 +440,8 @@ static size_t dh_pkey_dirty_cnt(const EVP_PKEY *pkey)
 }
 
 static int dh_pkey_export_to(const EVP_PKEY *from, void *to_keydata,
-                             EVP_KEYMGMT *to_keymgmt, OSSL_LIB_CTX *libctx,
-                             const char *propq)
+                             OSSL_FUNC_keymgmt_import_fn *importer,
+                             OSSL_LIB_CTX *libctx, const char *propq)
 {
     DH *dh = from->pkey.dh;
     OSSL_PARAM_BLD *tmpl;
@@ -452,13 +452,6 @@ static int dh_pkey_export_to(const EVP_PKEY *from, void *to_keydata,
     OSSL_PARAM *params = NULL;
     int selection = 0;
     int rv = 0;
-
-    /*
-     * If the DH method is foreign, then we can't be sure of anything, and
-     * can therefore not export or pretend to export.
-     */
-    if (ossl_dh_get_method(dh) != DH_OpenSSL())
-        return 0;
 
     if (p == NULL || g == NULL)
         return 0;
@@ -495,7 +488,7 @@ static int dh_pkey_export_to(const EVP_PKEY *from, void *to_keydata,
         goto err;
 
     /* We export, the provider imports */
-    rv = evp_keymgmt_import(to_keymgmt, to_keydata, selection, params);
+    rv = importer(to_keydata, selection, params);
 
     OSSL_PARAM_free(params);
 err:
@@ -518,7 +511,7 @@ static int dh_pkey_import_from_type(const OSSL_PARAM params[], void *vpctx,
     DH_set_flags(dh, type == EVP_PKEY_DH ? DH_FLAG_TYPE_DH : DH_FLAG_TYPE_DHX);
 
     if (!ossl_dh_params_fromdata(dh, params)
-        || !ossl_dh_key_fromdata(dh, params)
+        || !ossl_dh_key_fromdata(dh, params, 1)
         || !EVP_PKEY_assign(pkey, type, dh)) {
         DH_free(dh);
         return 0;

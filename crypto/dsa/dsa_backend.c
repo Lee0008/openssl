@@ -15,6 +15,9 @@
 
 #include <openssl/core_names.h>
 #include <openssl/err.h>
+#ifndef FIPS_MODULE
+# include <openssl/x509.h>
+#endif
 #include "crypto/dsa.h"
 #include "dsa_local.h"
 
@@ -24,16 +27,19 @@
  * implementations alike.
  */
 
-int ossl_dsa_key_fromdata(DSA *dsa, const OSSL_PARAM params[])
+int ossl_dsa_key_fromdata(DSA *dsa, const OSSL_PARAM params[],
+                          int include_private)
 {
-    const OSSL_PARAM *param_priv_key, *param_pub_key;
+    const OSSL_PARAM *param_priv_key = NULL, *param_pub_key;
     BIGNUM *priv_key = NULL, *pub_key = NULL;
 
     if (dsa == NULL)
         return 0;
 
-    param_priv_key =
-        OSSL_PARAM_locate_const(params, OSSL_PKEY_PARAM_PRIV_KEY);
+    if (include_private) {
+        param_priv_key =
+            OSSL_PARAM_locate_const(params, OSSL_PKEY_PARAM_PRIV_KEY);
+    }
     param_pub_key =
         OSSL_PARAM_locate_const(params, OSSL_PKEY_PARAM_PUB_KEY);
 

@@ -13,20 +13,20 @@ I<command>
 
 B<openssl>
 B<list>
-B<-standard-commands> |
-B<-digest-commands> |
-B<-cipher-commands> |
-B<-cipher-algorithms> |
-B<-digest-algorithms> |
-B<-mac-algorithms> |
-B<-public-key-algorithms>
+B<standard-commands> |
+B<digest-commands> |
+B<cipher-commands> |
+B<cipher-algorithms> |
+B<digest-algorithms> |
+B<mac-algorithms> |
+B<public-key-algorithms>
 
 B<openssl> B<no->I<XXX> [ I<options> ]
 
 =head1 DESCRIPTION
 
-OpenSSL is a cryptography toolkit implementing the Secure Sockets Layer (SSL
-v2/v3) and Transport Layer Security (TLS v1) network protocols and related
+OpenSSL is a cryptography toolkit implementing the Secure Sockets Layer (SSL)
+and Transport Layer Security (TLS) network protocols and related
 cryptography standards required by them.
 
 The B<openssl> program is a command line program for using the various
@@ -387,6 +387,22 @@ SHA-3 384 Digest
 
 SHA-3 512 Digest
 
+=item B<keccak-224>
+
+KECCAK 224 Digest
+
+=item B<keccak-256>
+
+KECCAK 256 Digest
+
+=item B<keccak-384>
+
+KECCAK 384 Digest
+
+=item B<keccak-512>
+
+KECCAK 512 Digest
+
 =item B<shake128>
 
 SHA-3 SHAKE128 Digest
@@ -651,7 +667,12 @@ the PKCS#11 URI as defined in RFC 7512 should be possible to use directly:
 
 =item B<-provider> I<name>
 
-Load and initialize the provider identified by I<name>.
+Load and initialize the provider identified by I<name>. The I<name>
+can be also a path to the provider module. In that case the provider name
+will be the specified path and not just the provider module name.
+Interpretation of relative paths is platform specific. The configured
+"MODULESDIR" path, B<OPENSSL_MODULES> environment variable, or the path
+specified by B<-provider-path> is prepended to relative paths.
 See L<provider(7)> for a more detailed description.
 
 =item B<-provider-path> I<path>

@@ -9,6 +9,10 @@
 # This is the most shell agnostic way to specify that POSIX rules.
 POSIXLY_CORRECT=1
 
+# Force C locale because some commands (like date +%b) relies
+# on the current locale.
+export LC_ALL=C
+
 usage () {
     cat <<EOF
 Usage: release.sh [ options ... ]
@@ -20,7 +24,7 @@ Usage: release.sh [ options ... ]
 --final         Get out of "alpha" or "beta" and make a final release.
                 Implies --branch.
 
---branch        Create a release branch 'openssl-{major}.{minor}.x',
+--branch        Create a release branch 'openssl-{major}.{minor}',
                 where '{major}' and '{minor}' are the major and minor
                 version numbers.
 
@@ -30,7 +34,7 @@ Usage: release.sh [ options ... ]
                 key (default: use the default e-mail address’ key).
 
 --no-upload     Don't upload to upload@dev.openssl.org.
---no-update     Don't perform 'make update'.
+--no-update     Don't perform 'make update' and 'make update-fips-checksums'.
 --verbose       Verbose output.
 --debug         Include debug output.  Implies --no-upload.
 
@@ -218,13 +222,13 @@ if (echo "$orig_branch" \
         | grep -E -q \
                -e '^master$' \
                -e '^OpenSSL_[0-9]+_[0-9]+_[0-9]+[a-z]*-stable$' \
-               -e '^openssl-[0-9]+\.[0-9]+\.x$'); then
+               -e '^openssl-[0-9]+\.[0-9]+$'); then
     :
 elif $force; then
     :
 else
     echo >&2 "Not in master or any recognised release branch"
-    echo >&2 "Please 'git checkout' an approprite branch"
+    echo >&2 "Please 'git checkout' an appropriate branch"
     exit 1
 fi
 orig_HEAD=$(git rev-parse HEAD)
@@ -253,7 +257,7 @@ get_version
 # changes for the release, the update branch is where we make the post-
 # release changes
 update_branch="$orig_branch"
-release_branch="openssl-$SERIES.x"
+release_branch="openssl-$SERIES"
 
 # among others, we only create a release branch if the patch number is zero
 if [ "$update_branch" = "$release_branch" ] || [ $PATCH -ne 0 ]; then
@@ -319,9 +323,16 @@ echo "== Configuring OpenSSL for update and release.  This may take a bit of tim
 
 ./Configure cc >&42
 
-$VERBOSE "== Checking source file updates"
+$VERBOSE "== Checking source file updates and fips checksums"
 
 make update >&42
+# As long as we're doing an alpha release, we can have symbols without specific
+# numbers assigned. In a beta or final release, all symbols MUST have an
+# assigned number.
+if [ "$next_method" != 'alpha' ]; then
+    make renumber >&42
+fi
+make update-fips-checksums >&42
 
 if [ -n "$(git status --porcelain)" ]; then
     $VERBOSE "== Committing updates"
@@ -337,7 +348,7 @@ fi
 if $do_branch; then
     $VERBOSE "== Creating a local update branch: $tmp_update_branch"
     git branch $git_quiet "$tmp_update_branch"
-fi    
+fi
 
 # Write the version information we updated
 set_version
@@ -362,7 +373,7 @@ for fixup in "$HERE/dev/release-aux"/fixup-*-release.pl; do
         perl -pi $fixup $file
 done
 
-$VERBOSE "== Comitting updates and tagging"
+$VERBOSE "== Committing updates and tagging"
 git add -u
 git commit $git_quiet -m "Prepare for release of $release_text"
 if [ -n "$reviewers" ]; then
@@ -410,7 +421,7 @@ cat "$HERE/dev/release-aux/$announce_template" \
           -e "s|\\\$sha256hash|$sha256hash|" \
     | perl -p "$HERE/dev/release-aux/fix-title.pl" \
     > "../$announce"
-              
+
 $VERBOSE "== Generating signatures: $tgzfile.asc $announce.asc"
 rm -f "../$tgzfile.asc" "../$announce.asc"
 echo "Signing the release files.  You may need to enter a pass phrase"
@@ -464,7 +475,7 @@ for fixup in "$HERE/dev/release-aux"/fixup-*-postrelease.pl; do
         perl -pi $fixup $file
 done
 
-$VERBOSE "== Comitting updates"
+$VERBOSE "== Committing updates"
 git add -u
 git commit $git_quiet -m "Prepare for $release_text"
 if [ -n "$reviewers" ]; then
@@ -495,7 +506,7 @@ if $do_branch; then
             perl -pi $fixup $file
     done
 
-    $VERBOSE "== Comitting updates"
+    $VERBOSE "== Committing updates"
     git add -u
     git commit $git_quiet -m "Prepare for $release_text"
     if [ -n "$reviewers" ]; then
@@ -508,7 +519,7 @@ $VERBOSE "== Push what we have to the parent repository"
 git push parent HEAD
 
 # Done ###############################################################
-    
+
 $VERBOSE "== Done"
 
 cd $HERE
@@ -687,9 +698,9 @@ This implies B<--branch>.
 
 =item B<--branch>
 
-Create a branch specific for the I<SERIES>.x release series, if it doesn't
+Create a branch specific for the I<SERIES> release series, if it doesn't
 already exist, and switch to it.  The exact branch name will be
-C<< openssl-I<SERIES>.x >>.
+C<< openssl-I<SERIES> >>.
 
 =item B<--no-upload>
 
@@ -697,7 +708,7 @@ Don't upload the produced files.
 
 =item B<--no-update>
 
-Don't run C<make update>.
+Don't run C<make update> and C<make update-fips-checksums>.
 
 =item B<--verbose>
 
@@ -744,7 +755,7 @@ C<< OpenSSL_I<VERSION> >> for regular releases, or
 C<< OpenSSL_I<VERSION>-preI<n> >> for pre-releases.
 
 From OpenSSL 3.0 ongoing, the release branches are named
-C<< openssl-I<SERIES>.x >>, and the release tags are named
+C<< openssl-I<SERIES> >>, and the release tags are named
 C<< openssl-I<VERSION> >> for regular releases, or
 C<< openssl-I<VERSION>-alphaI<n> >> for alpha releases
 and C<< openssl-I<VERSION>-betaI<n> >> for beta releases.

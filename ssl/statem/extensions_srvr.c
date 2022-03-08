@@ -155,10 +155,6 @@ int tls_parse_ctos_server_name(SSL *s, PACKET *pkt, unsigned int context,
          * the initial handshake and the resumption. In TLSv1.3 SNI is not
          * associated with the session.
          */
-        /*
-         * TODO(openssl-team): if the SNI doesn't match, we MUST
-         * fall back to a full handshake.
-         */
         s->servername_done = (s->session->ext.hostname != NULL)
             && PACKET_equal(&hostname, s->session->ext.hostname,
                             strlen(s->session->ext.hostname));
@@ -215,10 +211,6 @@ int tls_parse_ctos_srp(SSL *s, PACKET *pkt, unsigned int context, X509 *x,
         return 0;
     }
 
-    /*
-     * TODO(openssl-team): currently, we re-authenticate the user
-     * upon resumption. Instead, we MUST ignore the login.
-     */
     if (!PACKET_strndup(&srp_I, &s->srp_ctx.login)) {
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
         return 0;
@@ -364,7 +356,6 @@ int tls_parse_ctos_status_request(SSL *s, PACKET *pkt, unsigned int context,
         }
 
         id_data = PACKET_data(&responder_id);
-        /* TODO(size_t): Convert d2i_* to size_t */
         id = d2i_OCSP_RESPID(NULL, &id_data,
                              (int)PACKET_remaining(&responder_id));
         if (id == NULL) {
@@ -644,7 +635,7 @@ int tls_parse_ctos_key_share(SSL *s, PACKET *pkt, unsigned int context, X509 *x,
          * we requested, and must be the only key_share sent.
          */
         if (s->s3.group_id != 0
-                && (group_id != s->s3.group_id
+                && (ssl_group_id_tls13_to_internal(group_id) != s->s3.group_id
                     || PACKET_remaining(&key_share_list) != 0)) {
             SSLfatal(s, SSL_AD_ILLEGAL_PARAMETER, SSL_R_BAD_KEY_SHARE);
             return 0;
@@ -662,17 +653,21 @@ int tls_parse_ctos_key_share(SSL *s, PACKET *pkt, unsigned int context, X509 *x,
             continue;
         }
 
+        s->s3.group_id = group_id;
+        /* Cache the selected group ID in the SSL_SESSION */
+        s->session->kex_group = group_id;
+
+        group_id = ssl_group_id_tls13_to_internal(group_id);
+
         if ((s->s3.peer_tmp = ssl_generate_param_group(s, group_id)) == NULL) {
             SSLfatal(s, SSL_AD_INTERNAL_ERROR,
                    SSL_R_UNABLE_TO_FIND_ECDH_PARAMETERS);
             return 0;
         }
 
-        s->s3.group_id = group_id;
-
-        if (EVP_PKEY_set1_encoded_public_key(s->s3.peer_tmp,
-                PACKET_data(&encoded_pt),
-                PACKET_remaining(&encoded_pt)) <= 0) {
+        if (tls13_set_encoded_pub_key(s->s3.peer_tmp,
+                                      PACKET_data(&encoded_pt),
+                                      PACKET_remaining(&encoded_pt)) <= 0) {
             SSLfatal(s, SSL_AD_ILLEGAL_PARAMETER, SSL_R_BAD_ECPOINT);
             return 0;
         }
@@ -1024,7 +1019,7 @@ int tls_parse_ctos_psk(SSL *s, PACKET *pkt, unsigned int context, X509 *x,
         }
 
 #ifndef OPENSSL_NO_PSK
-        if(sess == NULL
+        if (sess == NULL
                 && s->psk_server_callback != NULL
                 && idlen <= PSK_MAX_IDENTITY_LEN) {
             char *pskid = NULL;
@@ -1162,7 +1157,8 @@ int tls_parse_ctos_psk(SSL *s, PACKET *pkt, unsigned int context, X509 *x,
 
         md = ssl_md(s->ctx, sess->cipher->algorithm2);
         if (!EVP_MD_is_a(md,
-                EVP_MD_name(ssl_md(s->ctx, s->s3.tmp.new_cipher->algorithm2)))) {
+                EVP_MD_get0_name(ssl_md(s->ctx,
+                                        s->s3.tmp.new_cipher->algorithm2)))) {
             /* The ciphersuite is not compatible with this session. */
             SSL_SESSION_free(sess);
             sess = NULL;
@@ -1177,7 +1173,7 @@ int tls_parse_ctos_psk(SSL *s, PACKET *pkt, unsigned int context, X509 *x,
         return 1;
 
     binderoffset = PACKET_data(pkt) - (const unsigned char *)s->init_buf->data;
-    hashsize = EVP_MD_size(md);
+    hashsize = EVP_MD_get_size(md);
 
     if (!PACKET_get_length_prefixed_2(pkt, &binders)) {
         SSLfatal(s, SSL_AD_DECODE_ERROR, SSL_R_BAD_EXTENSION);
@@ -1597,7 +1593,8 @@ EXT_RETURN tls_construct_stoc_key_share(SSL *s, WPACKET *pkt,
         }
         if (!WPACKET_put_bytes_u16(pkt, TLSEXT_TYPE_key_share)
                 || !WPACKET_start_sub_packet_u16(pkt)
-                || !WPACKET_put_bytes_u16(pkt, s->s3.group_id)
+                || !WPACKET_put_bytes_u16(pkt, ssl_group_id_internal_to_tls13(
+                                          s->s3.group_id))
                 || !WPACKET_close(pkt)) {
             SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
             return EXT_RETURN_FAIL;
@@ -1612,6 +1609,13 @@ EXT_RETURN tls_construct_stoc_key_share(SSL *s, WPACKET *pkt,
             SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
             return EXT_RETURN_FAIL;
         }
+        return EXT_RETURN_NOT_SENT;
+    }
+    if (s->hit && (s->ext.psk_kex_mode & TLSEXT_KEX_MODE_FLAG_KE_DHE) == 0) {
+        /*
+         * PSK ('hit') and explicitly not doing DHE (if the client sent the
+         * DHE option we always take it); don't send key share.
+         */
         return EXT_RETURN_NOT_SENT;
     }
 
@@ -1698,6 +1702,7 @@ EXT_RETURN tls_construct_stoc_key_share(SSL *s, WPACKET *pkt,
             return EXT_RETURN_FAIL;
         }
     }
+    s->s3.did_kex = 1;
     return EXT_RETURN_SENT;
 #else
     return EXT_RETURN_FAIL;

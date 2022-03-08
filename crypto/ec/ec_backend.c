@@ -17,11 +17,14 @@
 #include <openssl/objects.h>
 #include <openssl/params.h>
 #include <openssl/err.h>
-#include <openssl/engine.h>
+#ifndef FIPS_MODULE
+# include <openssl/engine.h>
+# include <openssl/x509.h>
+#endif
 #include "crypto/bn.h"
 #include "crypto/ec.h"
 #include "ec_local.h"
-#include "e_os.h"
+#include "internal/e_os.h"
 #include "internal/param_build_set.h"
 
 /* Mapping between a flag and a name */
@@ -292,7 +295,7 @@ int ossl_ec_group_todata(const EC_GROUP *group, OSSL_PARAM_BLD *tmpl,
     point_conversion_form_t genform;
 
     if (group == NULL) {
-        ERR_raise(ERR_LIB_EC,EC_R_PASSED_NULL_PARAMETER);
+        ERR_raise(ERR_LIB_EC, EC_R_PASSED_NULL_PARAMETER);
         return 0;
     }
 
@@ -328,7 +331,7 @@ int ossl_ec_group_todata(const EC_GROUP *group, OSSL_PARAM_BLD *tmpl,
 
     if (curve_nid != NID_undef) {
         /* Named curve */
-        const char *curve_name = ossl_ec_curve_nid2name(curve_nid);
+        const char *curve_name = OSSL_EC_curve_nid2name(curve_nid);
 
         if (curve_name == NULL
             || !ossl_param_build_set_utf8_string(tmpl, params,
@@ -726,6 +729,35 @@ int ossl_ec_pt_format_param2id(const OSSL_PARAM *p, int *id)
 }
 
 #ifndef FIPS_MODULE
+int ossl_x509_algor_is_sm2(const X509_ALGOR *palg)
+{
+    int ptype = 0;
+    const void *pval = NULL;
+
+    X509_ALGOR_get0(NULL, &ptype, &pval, palg);
+
+    if (ptype == V_ASN1_OBJECT)
+        return OBJ_obj2nid((ASN1_OBJECT *)pval) == NID_sm2;
+
+    if (ptype == V_ASN1_SEQUENCE) {
+        const ASN1_STRING *str = pval;
+        const unsigned char *der = str->data;
+        int derlen = str->length;
+        EC_GROUP *group;
+        int ret;
+
+        if ((group = d2i_ECPKParameters(NULL, &der, derlen)) == NULL)
+            ret = 0;
+        else
+            ret = (EC_GROUP_get_curve_name(group) == NID_sm2);
+
+        EC_GROUP_free(group);
+        return ret;
+    }
+
+    return 0;
+}
+
 EC_KEY *ossl_ec_key_param_from_x509_algor(const X509_ALGOR *palg,
                                      OSSL_LIB_CTX *libctx, const char *propq)
 {

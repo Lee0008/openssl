@@ -7,10 +7,11 @@
  * https://www.openssl.org/source/license.html
  */
 
-
 #ifndef OSSL_INTERNAL_SOCKETS_H
 # define OSSL_INTERNAL_SOCKETS_H
 # pragma once
+
+# include <openssl/opensslconf.h>
 
 # if defined(OPENSSL_SYS_VXWORKS) || defined(OPENSSL_SYS_UEFI)
 #  define NO_SYS_PARAM_H
@@ -31,6 +32,8 @@
 #   include <sys/un.h>
 #   include <tcp.h>
 #   include <netdb.h>
+#   include <arpa/inet.h>
+#   include <netinet/tcp.h>
 #  elif defined(_WIN32_WCE) && _WIN32_WCE<410
 #   define getservbyname _masked_declaration_getservbyname
 #  endif

@@ -1,7 +1,6 @@
 /*
- * Copyright 2007-2021 The OpenSSL Project Authors. All Rights Reserved.
- * Copyright Nokia 2007-2019
- * Copyright Siemens AG 2015-2019
+ * Copyright 2007-2022 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright Siemens AG 2015-2022
  *
  * Licensed under the Apache License 2.0 (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -14,14 +13,50 @@
  * There are some known false positives, though, which are marked below.
  */
 
+#define F                                       \
+    void f()                                    \
+    {                                           \
+        int i;                                  \
+        int j;                                  \
+                                                \
+        return;                                 \
+    }
+
 /*-
- * allow double space  in format-tagged multi-line comment
+ * allow extra SPC in format-tagged multi-line comment
  */
 int f(void) /*
              * trailing multi-line comment
              */
 {
-    if (ctx == NULL) { /* non-leading intra-line comment */
+    typedef int INT;
+    void v;
+    short b;
+    char c;
+    signed s;
+    unsigned u;
+    int i;
+    long l;
+    float f;
+    double d;
+    enum {} enu;
+    struct {} stru;
+    union {} un;
+    auto a;
+    extern e;
+    static int stat;
+    const int con;
+    volatile int vola;
+    register int reg;
+    /*
+     * multi-line comment should not disturb detection of local decls
+     */
+    BIO1 ***b;
+    /* intra-line comment should not disturb detection of local decls */
+    unsigned k;
+
+    /* intra-line comment should not disturb detection of end of local decls */
+    if (ctx == NULL) {    /* non-leading end-of-line comment */
         if (/* comment after '(' */ pem_name != NULL /* comment before ')' */)
             /* entire-line comment indent usually like for the following line */
             return NULL; /* hanging indent also for this line after comment */
@@ -35,6 +70,8 @@ int f(void) /*
         ;
     for (i = 0; i < 1;)
         ;
+    for (;;) ; /* should not trigger: space before ';' */
+ lab: ;  /* should not trigger: space before ';' */
 
 #if X
     if (1) /* bad style: just part of control structure depends on #if */
@@ -149,6 +186,16 @@ int f(void) /*
             && expr_line3)
         hanging_stmt;
 }
+
+/* should not trigger: constant on LHS of comparison or assignment operator */
+X509 *x509 = NULL;
+int y = a + 1 < b;
+int ret, was_NULL = *certs == NULL;
+
+/* should not trigger: no space before binary ... operator */
+float z = 1e-6 * (-1) * b[+6] * 1e+1 * (a)->f * (long)+1
+    - (tmstart.tv_sec + tmstart.tv_nsec * 1e-9);
+struct st = {-1, 0};
 
 const OPTIONS passwd_options[] = {
     {"aixmd5", OPT_AIXMD5, '-', "AIX MD5-based password algorithm"},
@@ -269,11 +316,12 @@ static varref cmp_vars[] = { /* comment.  comment?  comment!  */
         /* comment */ \
     }
 
-/* 'struct' in function header */
-static int f(struct pem_pass_data *pass_data)
+union un var; /* struct/union/enum in variable type */
+struct provider_store_st *f() /* struct/union/enum in function return type */
 {
-    if (pass_data == NULL)
-        return 0;
+}
+static void f(struct pem_pass_data *data) /* struct/union/enum in arg list */
+{
 }
 
 static void *fun(void)

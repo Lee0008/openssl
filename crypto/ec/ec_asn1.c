@@ -485,7 +485,7 @@ ECPKPARAMETERS *EC_GROUP_get_ecpkparameters(const EC_GROUP *group,
             ECPARAMETERS_free(ret->value.parameters);
     }
 
-    if (EC_GROUP_get_asn1_flag(group)) {
+    if (EC_GROUP_get_asn1_flag(group) == OPENSSL_EC_NAMED_CURVE) {
         /*
          * use the asn1 OID to describe the elliptic curve parameters
          */
@@ -699,7 +699,8 @@ EC_GROUP *EC_GROUP_new_from_ecparameters(const ECPARAMETERS *params)
 
     if (params->order == NULL
             || params->base == NULL
-            || params->base->data == NULL) {
+            || params->base->data == NULL
+            || params->base->length == 0) {
         ERR_raise(ERR_LIB_EC, EC_R_ASN1_ERROR);
         goto err;
     }
@@ -965,6 +966,9 @@ EC_KEY *d2i_ECPrivateKey(EC_KEY **a, const unsigned char **in, long len)
         goto err;
     }
 
+    if (EC_GROUP_get_curve_name(ret->group) == NID_sm2)
+        EC_KEY_set_flags(ret, EC_FLAG_SM2_RANGE);
+
     EC_POINT_clear_free(ret->pub_key);
     ret->pub_key = EC_POINT_new(ret->group);
     if (ret->pub_key == NULL) {
@@ -1109,6 +1113,10 @@ EC_KEY *d2i_ECParameters(EC_KEY **a, const unsigned char **in, long len)
             ret->dirty_cnt++;
         return NULL;
     }
+
+    if (EC_GROUP_get_curve_name(ret->group) == NID_sm2)
+        EC_KEY_set_flags(ret, EC_FLAG_SM2_RANGE);
+
     ret->dirty_cnt++;
 
     if (a)
@@ -1215,7 +1223,8 @@ ECDSA_SIG *d2i_ECDSA_SIG(ECDSA_SIG **psig, const unsigned char **ppin, long len)
         sig->r = BN_new();
     if (sig->s == NULL)
         sig->s = BN_new();
-    if (ossl_decode_der_dsa_sig(sig->r, sig->s, ppin, (size_t)len) == 0) {
+    if (sig->r == NULL || sig->s == NULL
+        || ossl_decode_der_dsa_sig(sig->r, sig->s, ppin, (size_t)len) == 0) {
         if (psig == NULL || *psig == NULL)
             ECDSA_SIG_free(sig);
         return NULL;

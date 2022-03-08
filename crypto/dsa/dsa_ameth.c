@@ -424,8 +424,8 @@ static size_t dsa_pkey_dirty_cnt(const EVP_PKEY *pkey)
 }
 
 static int dsa_pkey_export_to(const EVP_PKEY *from, void *to_keydata,
-                              EVP_KEYMGMT *to_keymgmt, OSSL_LIB_CTX *libctx,
-                              const char *propq)
+                              OSSL_FUNC_keymgmt_import_fn *importer,
+                              OSSL_LIB_CTX *libctx, const char *propq)
 {
     DSA *dsa = from->pkey.dsa;
     OSSL_PARAM_BLD *tmpl;
@@ -435,13 +435,6 @@ static int dsa_pkey_export_to(const EVP_PKEY *from, void *to_keydata,
     OSSL_PARAM *params;
     int selection = 0;
     int rv = 0;
-
-    /*
-     * If the DSA method is foreign, then we can't be sure of anything, and
-     * can therefore not export or pretend to export.
-     */
-    if (DSA_get_method(dsa) != DSA_OpenSSL())
-        return 0;
 
     if (p == NULL || q == NULL || g == NULL)
         return 0;
@@ -472,7 +465,7 @@ static int dsa_pkey_export_to(const EVP_PKEY *from, void *to_keydata,
         goto err;
 
     /* We export, the provider imports */
-    rv = evp_keymgmt_import(to_keymgmt, to_keydata, selection, params);
+    rv = importer(to_keydata, selection, params);
 
     OSSL_PARAM_free(params);
  err:
@@ -492,7 +485,7 @@ static int dsa_pkey_import_from(const OSSL_PARAM params[], void *vpctx)
     }
 
     if (!ossl_dsa_ffc_params_fromdata(dsa, params)
-        || !ossl_dsa_key_fromdata(dsa, params)
+        || !ossl_dsa_key_fromdata(dsa, params, 1)
         || !EVP_PKEY_assign_DSA(pkey, dsa)) {
         DSA_free(dsa);
         return 0;

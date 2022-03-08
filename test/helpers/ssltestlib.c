@@ -10,10 +10,9 @@
 #include <string.h>
 
 #include "internal/nelem.h"
-#include "internal/cryptlib.h" /* for ossl_sleep() */
 #include "ssltestlib.h"
 #include "../testutil.h"
-#include "e_os.h"
+#include "internal/e_os.h" /* for ossl_sleep() etc. */
 
 #ifdef OPENSSL_SYS_UNIX
 # include <unistd.h>
@@ -50,7 +49,7 @@ const BIO_METHOD *bio_f_tls_dump_filter(void)
     if (method_tls_dump == NULL) {
         method_tls_dump = BIO_meth_new(BIO_TYPE_TLS_DUMP_FILTER,
                                         "TLS dump filter");
-        if (   method_tls_dump == NULL
+        if (method_tls_dump == NULL
             || !BIO_meth_set_write(method_tls_dump, tls_dump_write)
             || !BIO_meth_set_read(method_tls_dump, tls_dump_read)
             || !BIO_meth_set_puts(method_tls_dump, tls_dump_puts)
@@ -470,7 +469,7 @@ int mempacket_test_inject(BIO *bio, const char *in, int inl, int pktnum,
         thispkt->type = type;
     }
 
-    for(i = 0; (looppkt = sk_MEMPACKET_value(ctx->pkts, i)) != NULL; i++) {
+    for (i = 0; (looppkt = sk_MEMPACKET_value(ctx->pkts, i)) != NULL; i++) {
         /* Check if we found the right place to insert this packet */
         if (looppkt->num > thispkt->num) {
             if (sk_MEMPACKET_insert(ctx->pkts, thispkt, i) == 0)
@@ -695,7 +694,9 @@ int create_ssl_ctx_pair(OSSL_LIB_CTX *libctx, const SSL_METHOD *sm,
     if (sctx != NULL) {
         if (*sctx != NULL)
             serverctx = *sctx;
-        else if (!TEST_ptr(serverctx = SSL_CTX_new_ex(libctx, NULL, sm)))
+        else if (!TEST_ptr(serverctx = SSL_CTX_new_ex(libctx, NULL, sm))
+            || !TEST_true(SSL_CTX_set_options(serverctx,
+                                              SSL_OP_ALLOW_CLIENT_RENEGOTIATION)))
             goto err;
     }
 
@@ -766,23 +767,20 @@ static int set_nb(int fd)
 {
     int flags;
 
-    flags = fcntl(fd,F_GETFL,0);
+    flags = fcntl(fd, F_GETFL, 0);
     if (flags == -1)
         return flags;
     flags = fcntl(fd, F_SETFL, flags | O_NONBLOCK);
     return flags;
 }
 
-int create_test_sockets(int *cfd, int *sfd)
+int create_test_sockets(int *cfdp, int *sfdp)
 {
     struct sockaddr_in sin;
     const char *host = "127.0.0.1";
     int cfd_connected = 0, ret = 0;
     socklen_t slen = sizeof(sin);
-    int afd = -1;
-
-    *cfd = -1;
-    *sfd = -1;
+    int afd = -1, cfd = -1, sfd = -1;
 
     memset ((char *) &sin, 0, sizeof(sin));
     sin.sin_family = AF_INET;
@@ -801,37 +799,39 @@ int create_test_sockets(int *cfd, int *sfd)
     if (listen(afd, 1) < 0)
         goto out;
 
-    *cfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (*cfd < 0)
+    cfd = socket(AF_INET, SOCK_STREAM, 0);
+    if (cfd < 0)
         goto out;
 
     if (set_nb(afd) == -1)
         goto out;
 
-    while (*sfd == -1 || !cfd_connected ) {
-        *sfd = accept(afd, NULL, 0);
-        if (*sfd == -1 && errno != EAGAIN)
+    while (sfd == -1 || !cfd_connected) {
+        sfd = accept(afd, NULL, 0);
+        if (sfd == -1 && errno != EAGAIN)
             goto out;
 
-        if (!cfd_connected && connect(*cfd, (struct sockaddr*)&sin, sizeof(sin)) < 0)
+        if (!cfd_connected && connect(cfd, (struct sockaddr*)&sin, sizeof(sin)) < 0)
             goto out;
         else
             cfd_connected = 1;
     }
 
-    if (set_nb(*cfd) == -1 || set_nb(*sfd) == -1)
+    if (set_nb(cfd) == -1 || set_nb(sfd) == -1)
         goto out;
     ret = 1;
+    *cfdp = cfd;
+    *sfdp = sfd;
     goto success;
 
 out:
-        if (*cfd != -1)
-            close(*cfd);
-        if (*sfd != -1)
-            close(*sfd);
+    if (cfd != -1)
+        close(cfd);
+    if (sfd != -1)
+        close(sfd);
 success:
-        if (afd != -1)
-            close(afd);
+    if (afd != -1)
+        close(afd);
     return ret;
 }
 

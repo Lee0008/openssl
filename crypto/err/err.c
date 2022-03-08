@@ -7,7 +7,6 @@
  * https://www.openssl.org/source/license.html
  */
 
-/* TODO: When ERR_STATE becomes opaque, this musts be removed */
 #define OSSL_FORCE_ERR_STATE
 
 #include <stdio.h>
@@ -24,7 +23,7 @@
 #include "internal/thread_once.h"
 #include "crypto/ctype.h"
 #include "internal/constant_time.h"
-#include "e_os.h"
+#include "internal/e_os.h"
 #include "err_local.h"
 
 /* Forward declaration in case it's not published because of configuration */
@@ -81,6 +80,10 @@ static ERR_STRING_DATA ERR_str_libraries[] = {
     {0, NULL},
 };
 
+/*
+ * Should make sure that all ERR_R_ reasons defined in include/openssl/err.h.in
+ * are listed.  For maintainability, please keep all reasons in the same order.
+ */
 static ERR_STRING_DATA ERR_str_reasons[] = {
     {ERR_R_SYS_LIB, "system lib"},
     {ERR_R_BN_LIB, "BN lib"},
@@ -93,17 +96,16 @@ static ERR_STRING_DATA ERR_str_reasons[] = {
     {ERR_R_DSA_LIB, "DSA lib"},
     {ERR_R_X509_LIB, "X509 lib"},
     {ERR_R_ASN1_LIB, "ASN1 lib"},
+    {ERR_R_CRYPTO_LIB, "CRYPTO lib"},
     {ERR_R_EC_LIB, "EC lib"},
     {ERR_R_BIO_LIB, "BIO lib"},
     {ERR_R_PKCS7_LIB, "PKCS7 lib"},
     {ERR_R_X509V3_LIB, "X509V3 lib"},
     {ERR_R_ENGINE_LIB, "ENGINE lib"},
     {ERR_R_UI_LIB, "UI lib"},
-    {ERR_R_OSSL_STORE_LIB, "STORE lib"},
     {ERR_R_ECDSA_LIB, "ECDSA lib"},
-
-    {ERR_R_NESTED_ASN1_ERROR, "nested asn1 error"},
-    {ERR_R_MISSING_ASN1_EOS, "missing asn1 eos"},
+    {ERR_R_OSSL_STORE_LIB, "OSSL_STORE lib"},
+    {ERR_R_OSSL_DECODER_LIB, "OSSL_DECODER lib"},
 
     {ERR_R_FATAL, "fatal"},
     {ERR_R_MALLOC_FAILURE, "malloc failure"},
@@ -113,10 +115,12 @@ static ERR_STRING_DATA ERR_str_reasons[] = {
     {ERR_R_INTERNAL_ERROR, "internal error"},
     {ERR_R_DISABLED, "called a function that was disabled at compile-time"},
     {ERR_R_INIT_FAIL, "init fail"},
+    {ERR_R_PASSED_INVALID_ARGUMENT, "passed invalid argument"},
     {ERR_R_OPERATION_FAIL, "operation fail"},
     {ERR_R_INVALID_PROVIDER_FUNCTIONS, "invalid provider functions"},
     {ERR_R_INTERRUPTED_OR_CANCELLED, "interrupted or cancelled"},
-
+    {ERR_R_NESTED_ASN1_ERROR, "nested asn1 error"},
+    {ERR_R_MISSING_ASN1_EOS, "missing asn1 eos"},
     /*
      * Something is unsupported, exactly what is expressed with additional data
      */
@@ -126,6 +130,9 @@ static ERR_STRING_DATA ERR_str_reasons[] = {
      * unsupported.
      */
     {ERR_R_FETCH_FAILED, "fetch failed"},
+    {ERR_R_INVALID_PROPERTY_DEFINITION, "invalid property definition"},
+    {ERR_R_UNABLE_TO_GET_READ_LOCK, "unable to get read lock"},
+    {ERR_R_UNABLE_TO_GET_WRITE_LOCK, "unable to get write lock"},
     {0, NULL},
 };
 #endif
@@ -248,7 +255,7 @@ static int err_load_strings(const ERR_STRING_DATA *str)
     return 1;
 }
 
-int err_load_ERR_strings_int(void)
+int ossl_err_load_ERR_strings(void)
 {
 #ifndef OPENSSL_NO_ERR
     if (!RUN_ONCE(&err_string_init, do_err_strings_init))
@@ -262,7 +269,7 @@ int err_load_ERR_strings_int(void)
 
 int ERR_load_strings(int lib, ERR_STRING_DATA *str)
 {
-    if (err_load_ERR_strings_int() == 0)
+    if (ossl_err_load_ERR_strings() == 0)
         return 0;
 
     err_patch(lib, str);
@@ -272,7 +279,7 @@ int ERR_load_strings(int lib, ERR_STRING_DATA *str)
 
 int ERR_load_strings_const(const ERR_STRING_DATA *str)
 {
-    if (err_load_ERR_strings_int() == 0)
+    if (ossl_err_load_ERR_strings() == 0)
         return 0;
     err_load_strings(str);
     return 1;
@@ -524,7 +531,8 @@ void ossl_err_string_int(unsigned long e, const char *func,
     }
 #endif
     if (rs == NULL) {
-        BIO_snprintf(rsbuf, sizeof(rsbuf), "reason(%lu)", r);
+        BIO_snprintf(rsbuf, sizeof(rsbuf), "reason(%lu)",
+                     r & ~(ERR_RFLAGS_MASK << ERR_RFLAGS_OFFSET));
         rs = rsbuf;
     }
 
@@ -837,61 +845,6 @@ void ERR_add_error_vdata(int num, va_list args)
     }
     if (!err_set_error_data_int(str, size, flags, 0))
         OPENSSL_free(str);
-}
-
-int ERR_set_mark(void)
-{
-    ERR_STATE *es;
-
-    es = ossl_err_get_state_int();
-    if (es == NULL)
-        return 0;
-
-    if (es->bottom == es->top)
-        return 0;
-    es->err_marks[es->top]++;
-    return 1;
-}
-
-int ERR_pop_to_mark(void)
-{
-    ERR_STATE *es;
-
-    es = ossl_err_get_state_int();
-    if (es == NULL)
-        return 0;
-
-    while (es->bottom != es->top
-           && es->err_marks[es->top] == 0) {
-        err_clear(es, es->top, 0);
-        es->top = es->top > 0 ? es->top - 1 : ERR_NUM_ERRORS - 1;
-    }
-
-    if (es->bottom == es->top)
-        return 0;
-    es->err_marks[es->top]--;
-    return 1;
-}
-
-int ERR_clear_last_mark(void)
-{
-    ERR_STATE *es;
-    int top;
-
-    es = ossl_err_get_state_int();
-    if (es == NULL)
-        return 0;
-
-    top = es->top;
-    while (es->bottom != top
-           && es->err_marks[top] == 0) {
-        top = top > 0 ? top - 1 : ERR_NUM_ERRORS - 1;
-    }
-
-    if (es->bottom == top)
-        return 0;
-    es->err_marks[top]--;
-    return 1;
 }
 
 void err_clear_last_constant_time(int clear)
