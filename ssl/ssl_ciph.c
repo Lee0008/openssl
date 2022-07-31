@@ -555,11 +555,14 @@ int ssl_cipher_get_evp(SSL_CTX *ctx, const SSL_SESSION *s,
         if (c->algorithm_mac == SSL_AEAD)
             mac_pkey_type = NULL;
     } else {
-        if (!ssl_evp_md_up_ref(ctx->ssl_digest_methods[i])) {
+        const EVP_MD *digest = ctx->ssl_digest_methods[i];
+
+        if (digest == NULL
+                || !ssl_evp_md_up_ref(digest)) {
             ssl_evp_cipher_free(*enc);
             return 0;
         }
-        *md = ctx->ssl_digest_methods[i];
+        *md = digest;
         if (mac_pkey_type != NULL)
             *mac_pkey_type = ctx->ssl_mac_pkey_id[i];
         if (mac_secret_size != NULL)
@@ -622,14 +625,15 @@ const EVP_MD *ssl_md(SSL_CTX *ctx, int idx)
     return ctx->ssl_digest_methods[idx];
 }
 
-const EVP_MD *ssl_handshake_md(SSL *s)
+const EVP_MD *ssl_handshake_md(SSL_CONNECTION *s)
 {
-    return ssl_md(s->ctx, ssl_get_algorithm2(s));
+    return ssl_md(SSL_CONNECTION_GET_CTX(s), ssl_get_algorithm2(s));
 }
 
-const EVP_MD *ssl_prf_md(SSL *s)
+const EVP_MD *ssl_prf_md(SSL_CONNECTION *s)
 {
-    return ssl_md(s->ctx, ssl_get_algorithm2(s) >> TLS1_PRF_DGST_SHIFT);
+    return ssl_md(SSL_CONNECTION_GET_CTX(s),
+                  ssl_get_algorithm2(s) >> TLS1_PRF_DGST_SHIFT);
 }
 
 #define ITEM_SEP(a) \
@@ -1428,15 +1432,22 @@ int SSL_CTX_set_ciphersuites(SSL_CTX *ctx, const char *str)
 int SSL_set_ciphersuites(SSL *s, const char *str)
 {
     STACK_OF(SSL_CIPHER) *cipher_list;
-    int ret = set_ciphersuites(&(s->tls13_ciphersuites), str);
+    SSL_CONNECTION *sc = SSL_CONNECTION_FROM_SSL(s);
+    int ret;
 
-    if (s->cipher_list == NULL) {
+    if (sc == NULL)
+        return 0;
+
+    ret = set_ciphersuites(&(sc->tls13_ciphersuites), str);
+
+    if (sc->cipher_list == NULL) {
         if ((cipher_list = SSL_get_ciphers(s)) != NULL)
-            s->cipher_list = sk_SSL_CIPHER_dup(cipher_list);
+            sc->cipher_list = sk_SSL_CIPHER_dup(cipher_list);
     }
-    if (ret && s->cipher_list != NULL)
-        return update_cipher_list(s->ctx, &s->cipher_list, &s->cipher_list_by_id,
-                                  s->tls13_ciphersuites);
+    if (ret && sc->cipher_list != NULL)
+        return update_cipher_list(s->ctx, &sc->cipher_list,
+                                  &sc->cipher_list_by_id,
+                                  sc->tls13_ciphersuites);
 
     return ret;
 }
@@ -2093,10 +2104,11 @@ int SSL_COMP_get_id(const SSL_COMP *comp)
 #endif
 }
 
-const SSL_CIPHER *ssl_get_cipher_by_char(SSL *ssl, const unsigned char *ptr,
+const SSL_CIPHER *ssl_get_cipher_by_char(SSL_CONNECTION *s,
+                                         const unsigned char *ptr,
                                          int all)
 {
-    const SSL_CIPHER *c = ssl->method->get_cipher_by_char(ptr);
+    const SSL_CIPHER *c = SSL_CONNECTION_GET_SSL(s)->method->get_cipher_by_char(ptr);
 
     if (c == NULL || (!all && c->valid == 0))
         return NULL;

@@ -19,6 +19,7 @@
 #include <openssl/asn1t.h>
 #include <openssl/objects.h>
 #include "internal/nelem.h"
+#include "crypto/asn1.h"
 #include "crypto/asn1_dsa.h"
 
 #ifndef FIPS_MODULE
@@ -358,8 +359,7 @@ static int ec_asn1_group2curve(const EC_GROUP *group, X9_62_CURVE *curve)
                 ERR_raise(ERR_LIB_EC, ERR_R_MALLOC_FAILURE);
                 goto err;
             }
-        curve->seed->flags &= ~(ASN1_STRING_FLAG_BITS_LEFT | 0x07);
-        curve->seed->flags |= ASN1_STRING_FLAG_BITS_LEFT;
+        ossl_asn1_string_set_bits_left(curve->seed, 0);
         if (!ASN1_BIT_STRING_set(curve->seed, group->seed,
                                  (int)group->seed_len)) {
             ERR_raise(ERR_LIB_EC, ERR_R_ASN1_LIB);
@@ -687,6 +687,16 @@ EC_GROUP *EC_GROUP_new_from_ecparameters(const ECPARAMETERS *params)
 
     /* extract seed (optional) */
     if (params->curve->seed != NULL) {
+        /*
+         * This happens for instance with
+         * fuzz/corpora/asn1/65cf44e85614c62f10cf3b7a7184c26293a19e4a
+         * and causes the OPENSSL_malloc below to choke on the
+         * zero length allocation request.
+         */
+        if (params->curve->seed->length == 0) {
+            ERR_raise(ERR_LIB_EC, EC_R_ASN1_ERROR);
+            goto err;
+        }
         OPENSSL_free(ret->seed);
         if ((ret->seed = OPENSSL_malloc(params->curve->seed->length)) == NULL) {
             ERR_raise(ERR_LIB_EC, ERR_R_MALLOC_FAILURE);
@@ -720,7 +730,7 @@ EC_GROUP *EC_GROUP_new_from_ecparameters(const ECPARAMETERS *params)
     }
 
     /* extract the order */
-    if ((a = ASN1_INTEGER_to_BN(params->order, a)) == NULL) {
+    if (ASN1_INTEGER_to_BN(params->order, a) == NULL) {
         ERR_raise(ERR_LIB_EC, ERR_R_ASN1_LIB);
         goto err;
     }
@@ -737,7 +747,7 @@ EC_GROUP *EC_GROUP_new_from_ecparameters(const ECPARAMETERS *params)
     if (params->cofactor == NULL) {
         BN_free(b);
         b = NULL;
-    } else if ((b = ASN1_INTEGER_to_BN(params->cofactor, b)) == NULL) {
+    } else if (ASN1_INTEGER_to_BN(params->cofactor, b) == NULL) {
         ERR_raise(ERR_LIB_EC, ERR_R_ASN1_LIB);
         goto err;
     }
@@ -1062,8 +1072,7 @@ int i2d_ECPrivateKey(const EC_KEY *a, unsigned char **out)
             goto err;
         }
 
-        priv_key->publicKey->flags &= ~(ASN1_STRING_FLAG_BITS_LEFT | 0x07);
-        priv_key->publicKey->flags |= ASN1_STRING_FLAG_BITS_LEFT;
+        ossl_asn1_string_set_bits_left(priv_key->publicKey, 0);
         ASN1_STRING_set0(priv_key->publicKey, pub, publen);
         pub = NULL;
     }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2019-2021 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 2019-2022 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the Apache License 2.0 (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -92,7 +92,7 @@ size_t ppc_aes_gcm_decrypt_wrap(const unsigned char *in, unsigned char *out,
 #   define AES_gcm_encrypt ppc_aes_gcm_encrypt_wrap
 #   define AES_gcm_decrypt ppc_aes_gcm_decrypt_wrap
 #   define AES_GCM_ASM(gctx) ((gctx)->ctr==aes_p8_ctr32_encrypt_blocks && \
-                              (gctx)->gcm.ghash==gcm_ghash_p8)
+                              (gctx)->gcm.funcs.ghash==gcm_ghash_p8)
 void gcm_ghash_p8(u64 Xi[2],const u128 Htable[16],const u8 *inp, size_t len);
 #  endif /* PPC */
 
@@ -124,7 +124,7 @@ void gcm_ghash_p8(u64 Xi[2],const u128 Htable[16],const u8 *inp, size_t len);
 #     define AES_gcm_encrypt armv8_aes_gcm_encrypt
 #     define AES_gcm_decrypt armv8_aes_gcm_decrypt
 #     define AES_GCM_ASM(gctx) ((gctx)->ctr==aes_v8_ctr32_encrypt_blocks && \
-                                (gctx)->gcm.ghash==gcm_ghash_v8)
+                                (gctx)->gcm.funcs.ghash==gcm_ghash_v8)
 size_t aes_gcm_enc_128_kernel(const uint8_t * plaintext, uint64_t plaintext_length, uint8_t * ciphertext,
                               uint64_t *Xi, unsigned char ivec[16], const void *key);
 size_t aes_gcm_enc_192_kernel(const uint8_t * plaintext, uint64_t plaintext_length, uint8_t * ciphertext,
@@ -258,7 +258,7 @@ void gcm_ghash_avx(u64 Xi[2], const u128 Htable[16], const u8 *in, size_t len);
 #   define AES_gcm_encrypt aesni_gcm_encrypt
 #   define AES_gcm_decrypt aesni_gcm_decrypt
 #   define AES_GCM_ASM(ctx)    (ctx->ctr == aesni_ctr32_encrypt_blocks && \
-                                ctx->gcm.ghash == gcm_ghash_avx)
+                                ctx->gcm.funcs.ghash == gcm_ghash_avx)
 #  endif
 
 
@@ -428,6 +428,19 @@ void aes256_t4_xts_decrypt(const unsigned char *in, unsigned char *out,
 
 /* Convert key size to function code: [16,24,32] -> [18,19,20]. */
 #  define S390X_AES_FC(keylen)  (S390X_AES_128 + ((((keylen) << 3) - 128) >> 6))
+# elif defined(OPENSSL_CPUID_OBJ) && defined(__riscv) && __riscv_xlen == 64
+/* RISC-V 64 support */
+#  include "riscv_arch.h"
+#  define RV64I_ZKND_ZKNE_CAPABLE   (RISCV_HAS_ZKND() && RISCV_HAS_ZKNE())
+
+int rv64i_zkne_set_encrypt_key(const unsigned char *userKey, const int bits,
+                          AES_KEY *key);
+int rv64i_zknd_set_decrypt_key(const unsigned char *userKey, const int bits,
+                          AES_KEY *key);
+void rv64i_zkne_encrypt(const unsigned char *in, unsigned char *out,
+                   const AES_KEY *key);
+void rv64i_zknd_decrypt(const unsigned char *in, unsigned char *out,
+                   const AES_KEY *key);
 # endif
 
 # if defined(HWAES_CAPABLE)

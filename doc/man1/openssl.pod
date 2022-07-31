@@ -710,8 +710,8 @@ see L<openssl-env(7)>.
 
 Enable tracing output of OpenSSL library, by name.
 This output will only make sense if you know OpenSSL internals well.
-Also, it might not give you any output at all, depending on how
-OpenSSL was built.
+Also, it might not give you any output at all
+if OpenSSL was built without tracing support.
 
 The value is a comma separated list of names, with the following
 available:
@@ -720,15 +720,19 @@ available:
 
 =item B<TRACE>
 
-The tracing functionality.
+Traces the OpenSSL trace API itself.
+
+=item B<INIT>
+
+Traces OpenSSL library initialization and cleanup.
 
 =item B<TLS>
 
-General SSL/TLS.
+Traces the TLS/SSL protocol.
 
 =item B<TLS_CIPHER>
 
-SSL/TLS cipher.
+Traces the ciphers used by the TLS/SSL protocol.
 
 =item B<CONF>
 
@@ -747,24 +751,48 @@ of generated for each change.
 
 =item B<PKCS5V2>
 
-PKCS#5 v2 keygen.
+Traces PKCS#5 v2 key generation.
 
 =item B<PKCS12_KEYGEN>
 
-PKCS#12 key generation.
+Traces PKCS#12 key generation.
 
 =item B<PKCS12_DECRYPT>
 
-PKCS#12 decryption.
+Traces PKCS#12 decryption.
 
 =item B<X509V3_POLICY>
 
-Generates the complete policy tree at various point during X.509 v3
+Generates the complete policy tree at various points during X.509 v3
 policy evaluation.
 
 =item B<BN_CTX>
 
-BIGNUM context.
+Traces BIGNUM context operations.
+
+=item B<CMP>
+
+Traces CMP client and server activity.
+
+=item B<STORE>
+
+Traces STORE operations.
+
+=item B<DECODER>
+
+Traces decoder operations.
+
+=item B<ENCODER>
+
+Traces encoder operations.
+
+=item B<REF_COUNT>
+
+Traces decrementing certain ASN.1 structure references.
+
+=item B<HTTP>
+
+Traces the HTTP client, such as message headers being sent and received.
 
 =back
 
@@ -845,7 +873,7 @@ that program with no arguments is now equivalent to C<openssl help>.
 
 =head1 COPYRIGHT
 
-Copyright 2000-2021 The OpenSSL Project Authors. All Rights Reserved.
+Copyright 2000-2022 The OpenSSL Project Authors. All Rights Reserved.
 
 Licensed under the Apache License 2.0 (the "License").  You may not use
 this file except in compliance with the License.  You can obtain a copy

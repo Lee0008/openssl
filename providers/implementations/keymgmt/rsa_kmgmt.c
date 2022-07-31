@@ -1,5 +1,5 @@
 /*
- * Copyright 2019-2021 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 2019-2022 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the Apache License 2.0 (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -229,9 +229,10 @@ static int rsa_export(void *keydata, int selection,
         ok = ok && ossl_rsa_todata(rsa, tmpl, NULL, include_private);
     }
 
-    if (!ok
-        || (params = OSSL_PARAM_BLD_to_param(tmpl)) == NULL)
+    if (!ok || (params = OSSL_PARAM_BLD_to_param(tmpl)) == NULL) {
+        ok = 0;
         goto err;
+    }
 
     ok = param_callback(params, cbarg);
     OSSL_PARAM_free(params);

@@ -1,5 +1,5 @@
 /*
- * Copyright 1995-2021 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 1995-2022 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the Apache License 2.0 (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -22,10 +22,6 @@
 #include "internal/nelem.h"
 #include "internal/numbers.h"
 #include "testutil.h"
-
-#ifdef OPENSSL_SYS_WINDOWS
-# define strcasecmp _stricmp
-#endif
 
 /*
  * Things in boring, not in openssl.
@@ -64,7 +60,7 @@ static const char *findattr(STANZA *s, const char *key)
     PAIR *pp = s->pairs;
 
     for ( ; --i >= 0; pp++)
-        if (strcasecmp(pp->key, key) == 0)
+        if (OPENSSL_strcasecmp(pp->key, key) == 0)
             return pp->value;
     return NULL;
 }
@@ -175,6 +171,11 @@ static int test_swap(void)
             || !equalBN("swap", b, c))
         goto err;
 
+    /* regular swap: same pointer */
+    BN_swap(a, a);
+    if (!equalBN("swap with same pointer", a, d))
+        goto err;
+
     /* conditional swap: true */
     cond = 1;
     BN_consttime_swap(cond, a, b, top);
@@ -182,11 +183,21 @@ static int test_swap(void)
             || !equalBN("cswap true", b, d))
         goto err;
 
+    /* conditional swap: true, same pointer */
+    BN_consttime_swap(cond, a, a, top);
+    if (!equalBN("cswap true", a, c))
+        goto err;
+
     /* conditional swap: false */
     cond = 0;
     BN_consttime_swap(cond, a, b, top);
     if (!equalBN("cswap false", a, c)
             || !equalBN("cswap false", b, d))
+        goto err;
+
+    /* conditional swap: false, same pointer */
+    BN_consttime_swap(cond, a, a, top);
+    if (!equalBN("cswap false", a, c))
         goto err;
 
     /* same tests but checking flag swap */
@@ -1732,8 +1743,17 @@ static int file_modsqrt(STANZA *s)
             || !TEST_ptr(ret2 = BN_new()))
         goto err;
 
+    if (BN_is_negative(mod_sqrt)) {
+        /* A negative testcase */
+        if (!TEST_ptr_null(BN_mod_sqrt(ret, a, p, ctx)))
+            goto err;
+
+        st = 1;
+        goto err;
+    }
+
     /* There are two possible answers. */
-    if (!TEST_true(BN_mod_sqrt(ret, a, p, ctx))
+    if (!TEST_ptr(BN_mod_sqrt(ret, a, p, ctx))
             || !TEST_true(BN_sub(ret2, p, ret)))
         goto err;
 

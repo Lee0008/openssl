@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2021 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 2011-2022 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the Apache License 2.0 (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -83,6 +83,8 @@ extern unsigned int OPENSSL_armv8_rsa_neonized;
 # define ARMV8_SM4       (1<<10)
 # define ARMV8_SHA3      (1<<11)
 # define ARMV8_UNROLL8_EOR3      (1<<12)
+# define ARMV8_SVE       (1<<13)
+# define ARMV8_SVE2      (1<<14)
 
 /*
  * MIDR_EL1 system register
@@ -99,19 +101,20 @@ extern unsigned int OPENSSL_armv8_rsa_neonized;
 # define ARM_CPU_PART_CORTEX_A72   0xD08
 # define ARM_CPU_PART_N1           0xD0C
 # define ARM_CPU_PART_V1           0xD40
+# define ARM_CPU_PART_N2           0xD49
 
 # define MIDR_PARTNUM_SHIFT       4
-# define MIDR_PARTNUM_MASK        (0xfff << MIDR_PARTNUM_SHIFT)
+# define MIDR_PARTNUM_MASK        (0xfffU << MIDR_PARTNUM_SHIFT)
 # define MIDR_PARTNUM(midr)       \
            (((midr) & MIDR_PARTNUM_MASK) >> MIDR_PARTNUM_SHIFT)
 
 # define MIDR_IMPLEMENTER_SHIFT   24
-# define MIDR_IMPLEMENTER_MASK    (0xff << MIDR_IMPLEMENTER_SHIFT)
+# define MIDR_IMPLEMENTER_MASK    (0xffU << MIDR_IMPLEMENTER_SHIFT)
 # define MIDR_IMPLEMENTER(midr)   \
            (((midr) & MIDR_IMPLEMENTER_MASK) >> MIDR_IMPLEMENTER_SHIFT)
 
 # define MIDR_ARCHITECTURE_SHIFT  16
-# define MIDR_ARCHITECTURE_MASK   (0xf << MIDR_ARCHITECTURE_SHIFT)
+# define MIDR_ARCHITECTURE_MASK   (0xfU << MIDR_ARCHITECTURE_SHIFT)
 # define MIDR_ARCHITECTURE(midr)  \
            (((midr) & MIDR_ARCHITECTURE_MASK) >> MIDR_ARCHITECTURE_SHIFT)
 
@@ -122,7 +125,7 @@ extern unsigned int OPENSSL_armv8_rsa_neonized;
 
 # define MIDR_CPU_MODEL(imp, partnum) \
            (((imp)     << MIDR_IMPLEMENTER_SHIFT)  | \
-            (0xf       << MIDR_ARCHITECTURE_SHIFT) | \
+            (0xfU      << MIDR_ARCHITECTURE_SHIFT) | \
             ((partnum) << MIDR_PARTNUM_SHIFT))
 
 # define MIDR_IS_CPU_MODEL(midr, imp, partnum) \

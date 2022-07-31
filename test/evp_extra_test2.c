@@ -1,5 +1,5 @@
 /*
- * Copyright 2015-2021 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 2015-2022 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the Apache License 2.0 (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -333,6 +333,10 @@ static int test_dh_tofrom_data_select(void)
     OSSL_PARAM params[2];
     EVP_PKEY *key = NULL;
     EVP_PKEY_CTX *gctx = NULL;
+# ifndef OPENSSL_NO_DEPRECATED_3_0
+    const DH *dhkey;
+    const BIGNUM *privkey;
+# endif
 
     params[0] = OSSL_PARAM_construct_utf8_string("group", "ffdhe2048", 0);
     params[1] = OSSL_PARAM_construct_end();
@@ -341,6 +345,11 @@ static int test_dh_tofrom_data_select(void)
           && TEST_true(EVP_PKEY_CTX_set_params(gctx, params))
           && TEST_int_gt(EVP_PKEY_generate(gctx, &key), 0)
           && TEST_true(do_pkey_tofrom_data_select(key, "DHX"));
+# ifndef OPENSSL_NO_DEPRECATED_3_0
+    ret = ret && TEST_ptr(dhkey = EVP_PKEY_get0_DH(key))
+              && TEST_ptr(privkey = DH_get0_priv_key(dhkey))
+              && TEST_int_le(BN_num_bits(privkey), 225);
+# endif
     EVP_PKEY_free(key);
     EVP_PKEY_CTX_free(gctx);
     return ret;
@@ -509,6 +518,42 @@ static int test_alternative_default(void)
     ok = 1;
  err:
     EVP_MD_free(sha256);
+    return ok;
+}
+
+static int test_provider_unload_effective(int testid)
+{
+    EVP_MD *sha256 = NULL;
+    OSSL_PROVIDER *provider = NULL;
+    int ok = 0;
+
+    if (!TEST_ptr(provider = OSSL_PROVIDER_load(NULL, "default"))
+        || !TEST_ptr(sha256 = EVP_MD_fetch(NULL, "SHA2-256", NULL)))
+        goto err;
+
+    if (testid > 0) {
+        OSSL_PROVIDER_unload(provider);
+        provider = NULL;
+        EVP_MD_free(sha256);
+        sha256 = NULL;
+    } else {
+        EVP_MD_free(sha256);
+        sha256 = NULL;
+        OSSL_PROVIDER_unload(provider);
+        provider = NULL;
+    }
+
+    /*
+     * setup_tests() loaded the "null" provider in the current default, and
+     * we unloaded it above after the load so we know this fetch should fail.
+     */
+    if (!TEST_ptr_null(sha256 = EVP_MD_fetch(NULL, "SHA2-256", NULL)))
+        goto err;
+
+    ok = 1;
+ err:
+    EVP_MD_free(sha256);
+    OSSL_PROVIDER_unload(provider);
     return ok;
 }
 
@@ -1064,6 +1109,7 @@ int setup_tests(void)
     ADD_TEST(test_rsa_pss_sign);
     ADD_TEST(test_evp_md_ctx_dup);
     ADD_TEST(test_evp_md_ctx_copy);
+    ADD_ALL_TESTS(test_provider_unload_effective, 2);
     return 1;
 }
 
